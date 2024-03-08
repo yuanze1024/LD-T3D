@@ -1,0 +1,15 @@
+data:
+  image_data_folder_path: data/3dannotate_imgs
+  3D_data_folder_path: data/objaverse_npy
+  gt_result_folder_path: data/annotation_result
+  text_data_path: data/Cap3D_automated_Objaverse_no3Dword.csv
+  federated_dataset_path: data/federated_dataset.pt
+  query_path: data/annotation.csv
+
+uni3d:
+  bpe_path: /mnt/pfs/users/yuanze/projects/Uni3D/bpe_simple_vocab_16e6.txt.gz
+  uni3d_path: /mnt/pfs/users/yuanze/projects/Uni3D/uni3d_g.pt
+  clip_path: /mnt/pfs/users/yuanze/projects/Uni3D/open_clip_pytorch_model.bin
+
+openshape:
+  checkpoint_path: /mnt/pfs/users/yuanze/projects/OpenShape_code/model.pt
