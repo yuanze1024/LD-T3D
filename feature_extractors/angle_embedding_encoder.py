@@ -9,10 +9,10 @@ import sys
 sys.path.append('')
 from feature_extractors import FeatureExtractor
 
-class UaeEmbeddingEncoder(FeatureExtractor):
-    def __init__(self) -> None:
+class AngleEmbeddingEncoder(FeatureExtractor):
+    def __init__(self, cache_dir, **kwargs) -> None:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model = AnglE.from_pretrained('WhereIsAI/UAE-Large-V1', pooling_strategy='cls').to(self.device)
+        self.model = AnglE.from_pretrained('WhereIsAI/UAE-Large-V1', pooling_strategy='cls', cache_dir=cache_dir).to(self.device)
 
     @torch.no_grad()
     def encode_text(self, caption_list):
