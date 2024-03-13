@@ -1,18 +1,18 @@
 
 import os
-import json
 import importlib
 import torch
-import pandas as pd
 from tqdm import tqdm
 from collections.abc import Sequence
 import argparse
 import yaml
 from torch.utils.data import DataLoader
 
-from utils.dataset import get_dataset
+from utils.dataset import get_dataset, get_rel_dataset
 from utils.metrics import calculate_metrics
+from utils.logger import get_logger
 
+logger = get_logger()
 
 def predict(xb, xq, source_id_list, federated_dataset) -> Sequence[Sequence[str]]:
     """Predict the most related 3D models for each sub-dataset using Cosine Similarity.
@@ -39,114 +39,93 @@ def predict(xb, xq, source_id_list, federated_dataset) -> Sequence[Sequence[str]
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate the performance of different feature extractors.")
-    parser.add_argument("--option", type=str, required=True, help="The feature extractor to be evaluated.")
-    parser.add_argument("--cross_modal", type=str, default="", help="The modalities that are used, seperated by '_'. \
+    parser.add_argument("--option", type=str, default="Uni3D", help="The feature extractor to be evaluated.")
+    parser.add_argument("--cross_modal", type=str, default="text_image_3D", help="The modalities that are used, seperated by '_'. \
                         The default value is '', representing features extracted using the 'encode' method in the feature extractor. \
                         If not '', use the modalities included. E.g., 'text_image' or 'text_image_3D'.")
-    parser.add_argument("--op", type=str, default="concat", choices=["concat", "add"], help="The operation to be used to fuse different embeddings.")
-    parser.add_argument("--angles", nargs="+", default=[4], help="The angles to be used to extract the embeddings if modalities including 'Image'.")
+    parser.add_argument("--op", type=str, default="add", choices=["concat", "add"], help="The operation to be used to fuse different base embeddings.")
+    parser.add_argument("--angles", nargs="+", default=["all"], choices=["all", "diag_below", "diag_above", "right", "left", "back", "front", "above", "below"], help="The angles to be used to extract the embeddings if modalities including 'Image'.")
     parser.add_argument("--batch_size", type=int, default=100, help="The batch size to be used to extract the embeddings.")
-    parser.add_argument("--text_data_path", type=str, help="The path to caption csv.")
-    parser.add_argument("--image_data_path", type=str, help="The path to image folder.")
-    parser.add_argument("--3D_data_path", type=str, help="The path to point cloud npy folder.")
-    return parser.parse_args()
+    args = parser.parse_args()
+    logger.info(args)
+    return args
 
-def get_embedding(option, modality, source_id_list, data_path, encode_fn, angle=None, batch_size=128):
-    save_path = f'data/objaverse_{option}_{modality + ("_" + str(angle)) if angle is not None else ""}_embeddings.pt'
+def get_embedding(option, modality, source_id_list, encode_fn, cache_dir, angle=None, batch_size=128, img_transform=None):
+    save_path = f'data/objaverse_{option}_{modality + (("_" + str(angle)) if angle is not None else "")}_embeddings.pt'
     if os.path.exists(save_path):
         return torch.load(save_path)
     else:
         embeddings = []
-        text_dataset = get_dataset(modality, source_id_list, data_path=data_path, angle=angle)
-        dataloader = DataLoader(text_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, prefetch_factor=batch_size//4)
-        for batch in tqdm(dataloader, desc=f"Extracting {modality} embeddings..."):
+        dataset = get_dataset(modality, source_id_list, cache_dir=cache_dir, angle=angle, img_transform=img_transform)
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, prefetch_factor=batch_size//4)
+        for batch in tqdm(dataloader, desc=f"Extracting {modality + (('_' + str(angle)) if angle is not None else '')} embeddings..."):
             embeddings.append(encode_fn(batch))
         embedding = torch.cat(embeddings, dim=0).cpu()
         torch.save(embedding, save_path)
         return embedding
 
-def read_gt(result_path):
-    """
-    get a dict，key is source_id，value is GT source_id list
-    """
-    result = {}
-    for file in sorted(os.listdir(result_path)):
-        if file.endswith(".json"):
-            with open(os.path.join(result_path, file), 'r') as f:
-                data = json.load(f)
-                assert type(data) == list
-                for dct in data:
-                    if dct['result']:
-                        result[dct['query_id']] = result.get(dct['query_id'], []) + [dct['target_id']]
-    return result
-
-def read_queries(query_path):
-    # get queries
-    df = pd.read_csv(query_path, sep='\t')
-    df.columns = ['id', 'source_id', 'caption', 'cn_caption', 'difficulty']
-    df = df.set_index('source_id')
-    source_to_caption = {}
-    source_list = df.index.tolist()
-    for query_id in source_list:
-        source_to_caption[query_id] = df.at[query_id, 'caption']
-    return source_to_caption
-    
 def get_yaml():
     file_yaml = 'config/config.yaml'
-    rf = open(file=file_yaml, mode='r', encoding='utf-8')
-    crf = rf.read()
-    rf.close()  # 关闭文件
-    yaml_data = yaml.load(stream=crf, Loader=yaml.FullLoader)
+    with open(file=file_yaml, mode='r', encoding='utf-8') as f:
+        yaml_data = yaml.safe_load(f)
+    logger.info(f"Loaded config from {file_yaml}")
+    logger.info(yaml_data)
     return yaml_data
 
+def parse_rel_dataset(rel_dataset):
+    federated_dataset_path, source_id_list_path, gt_dict_path, source_to_caption_path = "data/federated_dataset.pt", "data/source_id_list.pt", "data/gt_dict.pt", "data/source_to_caption.pt"
+    if os.path.exists(federated_dataset_path) and os.path.exists(source_id_list_path) and os.path.exists(gt_dict_path) and os.path.exists(source_to_caption_path):
+        return torch.load(federated_dataset_path), torch.load(source_id_list_path), torch.load(gt_dict_path), torch.load(source_to_caption_path)
+    else:
+        federated_dataset, source_id_list, gt_dict, source_to_caption = {}, set(), {}, {}
+        for query_id in range(len(rel_dataset['query_id'])):
+            federated_dataset[query_id] = rel_dataset['target_ids'][query_id]
+            gt_dict[query_id] = rel_dataset['GT_ids'][query_id]
+            source_to_caption[query_id] = rel_dataset['caption'][query_id]
+        
+        for value in federated_dataset.values():
+            source_id_list.update(value)
+        source_id_list = list(source_id_list)
+        source_id_list.sort()
+        torch.save(federated_dataset, federated_dataset_path)
+        torch.save(source_id_list, source_id_list_path)
+        torch.save(gt_dict, gt_dict_path)
+        torch.save(source_to_caption, source_to_caption_path)
+        return federated_dataset, source_id_list, gt_dict, source_to_caption
+
 def evaluate(args, config):
-    # parse args
-    option = args.option
+    option = args.option.lower()
     angles = args.angles
-    angles.sort()
+    if "all" in angles:
+        angles = ["diag_below", "diag_above", "right", "left", "back", "front", "above", "below"]
     op = args.op
     batch_size = args.batch_size
     cross_modal = args.cross_modal
 
-    # parse more configs
-    text_data_path = config['data']['text_data_path']
-    image_data_path = config['data']['image_data_folder_path']
-    _3D_data_path = config['data']['3D_data_folder_path']
-    federated_dataset_path = config['data']['federated_dataset_path']
-    gt_result_path = config['data']['gt_result_folder_path']
-    query_path = config['data']['query_path']
+    cache_dir = config['general']['cache_dir']
 
-    # get federated dataset
-    federated_dataset = torch.load(federated_dataset_path)
+    rel_dataset = get_rel_dataset(cache_dir)
+    federated_dataset, source_id_list, gt_dict, source_to_caption = parse_rel_dataset(rel_dataset)
 
-    # get all the source_id_list involved
-    source_id_list = set()
-    for value in federated_dataset.values():
-        source_id_list.update(value)
-    source_id_list = list(source_id_list)
-    source_id_list.sort()
-    
-    # read Ground Truth
-    gt_dict = read_gt(gt_result_path)
-    
-    # read queries
-    source_to_caption = read_queries(query_path)
-
-    # instantiate the feature extractor
+    logger.info(f"Initializing {option}...")
     module = importlib.import_module(f"feature_extractors.{option}_embedding_encoder")
-    encoder = getattr(module, f"{option.capitalize()}EmbeddingEncoder")(config.pop(option))
+    encoder = getattr(module, f"{option.capitalize()}EmbeddingEncoder")(cache_dir, method_config=config.pop(option, None))
     
-    # encode the embeddings
+    # encode base embeddings
     embeddings = []
     if "text" in cross_modal:
-        embeddings.append(get_embedding(option, "text", source_id_list, text_data_path, encoder.encode_text, batch_size=1024))
+        logger.info(f"Extracting text embeddings using {option}...")
+        embeddings.append(get_embedding(option, "text", source_id_list, encoder.encode_text, cache_dir=cache_dir, batch_size=1024))
     if "image" in cross_modal:
+        img_transform = encoder.get_img_transform()
         for angle in angles:
-            embeddings.append(get_embedding(option, "image", source_id_list, image_data_path, encoder.encode_image, angle=angle, batch_size=batch_size))
+            logger.info(f"Extracting image embeddings using {option} at angle {angle}...")
+            embeddings.append(get_embedding(option, "image", source_id_list, encoder.encode_image, cache_dir=cache_dir, angle=angle, batch_size=batch_size, img_transform=img_transform))
     if "3D" in cross_modal:
-        embeddings.append(get_embedding(option, "3D", source_id_list, _3D_data_path, encoder.encode_3D, batch_size=batch_size))
+        logger.info(f"Extracting 3D embeddings using {option}...")
+        embeddings.append(get_embedding(option, "3D", source_id_list, encoder.encode_3D, cache_dir=cache_dir, batch_size=batch_size))
         
-    ## fuse the embeddings
+    ## fuse base embeddings
     if len(embeddings) > 1:
         if op == "concat":
             embeddings = torch.cat(embeddings, dim=-1)
@@ -159,6 +138,7 @@ def evaluate(args, config):
         embeddings = embeddings[0]
 
     # encode query embeddings
+    logger.info(f"Encoding query embeddings using {option}...")
     xq = encoder.encode_query([source_to_caption[k] for k in federated_dataset.keys()])
     if op == "concat":
         xq = xq.repeat(1, embeddings.shape[-1] // xq.shape[-1]) # repeat to be aligned with the xb
@@ -166,7 +146,7 @@ def evaluate(args, config):
     
     pred_dict = predict(embeddings, xq, source_id_list, federated_dataset)
 
-    # # 测试val集
+    # # test val split
     # import random
     # random.seed(2)
     # query_id_list = random.sample(list(gt_dict.keys()), 200)
@@ -175,11 +155,14 @@ def evaluate(args, config):
     #     new_pred_dict[query_id] = pred_dict[query_id]
     # pred_dict = new_pred_dict
 
-    print(f"option: {option}, all:") # TODO: 把config和结果持久化
-    print("\tmAP: ", calculate_metrics(pred_dict, gt_dict, metric="mAP"), end=", ")
-    print("\tnDCG: ", calculate_metrics(pred_dict, gt_dict, metric="nDCG"), end=", ")
-    print("\tFT: ", calculate_metrics(pred_dict, gt_dict, metric="FT"), end=", ")
-    print("\tST: ", calculate_metrics(pred_dict, gt_dict, metric="ST"))
+    logger.info(f"option: {option}, all:") # TODO: 把config和结果持久化
+    log_message = "\tmAP: {},\tmnDCG: {},\tmFT: {},\tmST: {}".format(
+        calculate_metrics(pred_dict, gt_dict, metric="mAP"),
+        calculate_metrics(pred_dict, gt_dict, metric="nDCG"),
+        calculate_metrics(pred_dict, gt_dict, metric="FT"),
+        calculate_metrics(pred_dict, gt_dict, metric="ST")
+    )
+    logger.info(log_message)
 
 
 def main():

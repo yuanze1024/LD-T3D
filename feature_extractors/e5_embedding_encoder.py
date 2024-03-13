@@ -12,11 +12,11 @@ from feature_extractors import FeatureExtractor
 
 class E5EmbeddingEncoder(FeatureExtractor):
 
-    def __init__(self, **kwargs):
+    def __init__(self, cache_dir, **kwargs):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         repo_name = "intfloat/e5-large-v2"
-        self.tokenizer = AutoTokenizer.from_pretrained(repo_name, trust_remote_code=True)
-        self.model = AutoModel.from_pretrained(repo_name, trust_remote_code=True).to(self.device)
+        self.tokenizer = AutoTokenizer.from_pretrained(repo_name, trust_remote_code=True, cache_dir=cache_dir)
+        self.model = AutoModel.from_pretrained(repo_name, trust_remote_code=True, cache_dir=cache_dir).to(self.device)
 
     @torch.no_grad()
     def encode_text(self, caption_list):
