@@ -1,6 +1,7 @@
 """
 See https://github.com/baaivision/Uni3D for source code
 """
+import os
 import torch
 import torch.nn as nn
 import timm
@@ -9,7 +10,7 @@ from pointnet2_ops import pointnet2_utils
 import open_clip
 from tqdm import tqdm
 from PIL import Image
-
+from huggingface_hub import hf_hub_download
 import sys
 sys.path.append('')
 from feature_extractors import FeatureExtractor
@@ -280,10 +281,17 @@ def create_uni3d(uni3d_path):
     return model
 
 class Uni3dEmbeddingEncoder(FeatureExtractor):
-    def __init__(self, **kwargs) -> None:
-        bpe_path = kwargs.get("bpe_path")
-        uni3d_path = kwargs.get("uni3d_path")
-        clip_path = kwargs.get("clip_path")
+    def __init__(self, cache_dir, **kwargs) -> None:
+        bpe_path = "utils/bpe_simple_vocab_16e6.txt.gz"
+        uni3d_path = os.path.join(cache_dir, "Uni3D", "modelzoo", "uni3d-g", "model.pt") # concat the subfolder as hf_hub_download will put it here
+        clip_path = os.path.join(cache_dir, "Uni3D", "open_clip_pytorch_model.bin")
+
+        if not os.path.exists(uni3d_path):
+            hf_hub_download("BAAI/Uni3D", "model.pt", subfolder="modelzoo/uni3d-g", cache_dir=cache_dir, 
+                            local_dir=cache_dir + os.sep + "Uni3D")
+        if not os.path.exists(clip_path):
+            hf_hub_download("timm/eva02_enormous_patch14_plus_clip_224.laion2b_s9b_b144k", "open_clip_pytorch_model.bin", 
+                            cache_dir=cache_dir, local_dir=cache_dir + os.sep + "Uni3D")
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = SimpleTokenizer(bpe_path)
@@ -318,8 +326,8 @@ class Uni3dEmbeddingEncoder(FeatureExtractor):
         return class_embeddings.float()
 
     @torch.no_grad()
-    def encode_image(self, image_list):
-        image = torch.cat([self.preprocess(img).unsqueeze(0) for img in image_list]).cuda()
+    def encode_image(self, img_tensor_list):
+        image = img_tensor_list.cuda()
         image_features = self.clip_model.encode_image(image)
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
         return image_features.float()
@@ -327,3 +335,5 @@ class Uni3dEmbeddingEncoder(FeatureExtractor):
     def encode_query(self, query_list):
         return self.encode_text(query_list)
     
+    def get_img_transform(self):
+        return self.preprocess
