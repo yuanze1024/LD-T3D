@@ -12,14 +12,15 @@ class Map:
 
 def get_dataset(modality, id_list, cache_dir, angle=None, img_transform=None):
     """
-    Return a list of objects in the same order corresponding to the given id_list.
+    Return a dataset of objects in the same order corresponding to the given id_list.
     """
     repo = "VAST-AI/LD-T3D"
 
     if modality == "3D": # return [torch.Tensor]
         dataset = load_dataset(repo, name="pc_npy", split="base", cache_dir=cache_dir)
         dataset.set_format("torch")
-        obj_list = dataset['pc'] 
+        assert dataset['source_id'] == id_list, "The dataset is not organized in the same order as the id_list"
+        return dataset
     elif modality == "image": # return [torch.Tensor]
         angles = ["diag_below", "diag_above", "right", "left", "back", "front", "above", "below"]
         assert angle in angles, f"Unsupported angle: {angle}, supported angles: {angles}"
@@ -27,20 +28,21 @@ def get_dataset(modality, id_list, cache_dir, angle=None, img_transform=None):
         dataset = load_dataset(repo, name=f"rendered_imgs_{angle}", split="base", cache_dir=cache_dir) 
 
         def transform(example):
-            return {'image': img_transform(example['image'][0])}
-        # transform image into torch.Tensor (and perhaps other operations) according to img_transform
-        dataset = dataset.with_transform(transform) 
+            return {'image': [img_transform(img) for img in example['image']]}
+        # Register a transform, transfer image into torch.Tensor. Invoked when __getitem__ is called
+        dataset.set_transform(transform, columns="image", output_all_columns=False)
 
-        obj_list = dataset['image'] 
+        # we assume that the dataset is orgnaized in the same order as the id_list, otherwise, the retrieval result may be wrong
+        assert dataset['source_id'] == id_list, "The dataset is not organized in the same order as the id_list"
+        return dataset
     elif modality == "text": # return [caption]
         data_files = {"captions": "Cap3D_automated_Objaverse_no3Dword.csv"}
         dataset = load_dataset("tiange/Cap3D", data_files=data_files, names=["source_id", "caption"], header=None, split='captions', cache_dir=cache_dir)
-        obj_list = dataset['caption'] 
+        obj_list = dataset['caption']
+        map = Map(dataset['source_id'], obj_list)
+        return [map[i] for i in id_list]
     else:
         raise ValueError(f"Unsupported modality: {modality}")
-    
-    map = Map(dataset['source_id'], obj_list)
-    return [map[i] for i in id_list]
 
 def get_rel_dataset(cache_dir):
     """

@@ -14,27 +14,27 @@ from utils.logger import get_logger
 
 logger = get_logger()
 
-def predict(xb, xq, source_id_list, federated_dataset) -> Sequence[Sequence[str]]:
+def predict(xb, xq, source_id_order, federated_dataset) -> Sequence[Sequence[str]]:
     """Predict the most related 3D models for each sub-dataset using Cosine Similarity.
 
     Args:
-        xb: The embeddings of all 3D models, organized in the order of source_id_list.
+        xb: The embeddings of all 3D models, organized in the order of source_id_order.
         xq: The embeddings of all sub-datasets, where each row represents an embedding of the textual query.
-        source_id_list: A list of ALL the source_id involved in the federated_dataset.
+        source_id_order: A list of ALL the source_id involved in the federated_dataset.
         federated_dataset: A dict, whose key is the query_id, and value is the sub-dataset, which is a list of source_id.
     
     Returns:
         A dict of predictions, whose key is the query_id, and value is the list of source_id, sorted in reverse order by relevance DESC.
     """
     result = {}
-    source_to_id = {source_id: i for i, source_id in enumerate(source_id_list)}
+    source_to_id = {source_id: i for i, source_id in enumerate(source_id_order)}
     xb = xb.to(xq.device)
     sim = xq @ xb.T # (nq, nb)
     for i, query_id in tqdm(enumerate(federated_dataset.keys()), desc="searching..."):
         related_id = [source_to_id[target_id] for target_id in federated_dataset[query_id]] # find all the index of 3D models in a certain sub-dataset
         related_id = torch.tensor(related_id).to(sim.device)
         related_ord = sim[i, related_id].argsort(descending=True)
-        result[query_id] = [source_id_list[related_id[j]] for j in related_ord.tolist()]
+        result[query_id] = [source_id_order[related_id[j]] for j in related_ord.tolist()]
     return result
 
 def parse_args():
@@ -59,7 +59,13 @@ def get_embedding(option, modality, source_id_list, encode_fn, cache_dir, angle=
         dataset = get_dataset(modality, source_id_list, cache_dir=cache_dir, angle=angle, img_transform=img_transform)
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True, prefetch_factor=batch_size//4)
         for batch in tqdm(dataloader, desc=f"Extracting {modality + (('_' + str(angle)) if angle is not None else '')} embeddings..."):
-            embeddings.append(encode_fn(batch))
+            if modality == "image":
+                data = batch['image']
+            elif modality == "3D":
+                data = batch['pc']
+            elif modality == "text":
+                data = batch
+            embeddings.append(encode_fn(data))
         embedding = torch.cat(embeddings, dim=0).cpu()
         torch.save(embedding, save_path)
         return embedding
@@ -155,7 +161,7 @@ def evaluate(args, config):
     #     new_pred_dict[query_id] = pred_dict[query_id]
     # pred_dict = new_pred_dict
 
-    logger.info(f"option: {option}, all:") # TODO: 把config和结果持久化
+    logger.info(f"option: {option}, all difficulties:")
     log_message = "\tmAP: {},\tmnDCG: {},\tmFT: {},\tmST: {}".format(
         calculate_metrics(pred_dict, gt_dict, metric="mAP"),
         calculate_metrics(pred_dict, gt_dict, metric="nDCG"),

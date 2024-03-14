@@ -9,13 +9,17 @@ sys.path.append('')
 from feature_extractors import FeatureExtractor
 
 class ClipEmbeddingEncoder(FeatureExtractor):
-    def __init__(self, **kwargs):
+    def __init__(self, cache_dir, **kwargs):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model, self.preprocess = clip.load("ViT-L/14@336px", device=self.device)
+        self.model, self.preprocess = clip.load("ViT-L/14@336px", device=self.device, download_root=cache_dir+"/clip")
 
     @torch.no_grad()
-    def encode_image(self, img_list):
-        image_input = torch.stack([self.preprocess(image).unsqueeze(0).to(self.device) for image in img_list]).squeeze(1)
+    def encode_image(self, img_tensor_list):
+        """
+        Args:
+            img_tensor_list: list of torch.Tensor, each tensor is a 3D image preprocessed using self.preprocess
+        """
+        image_input = img_tensor_list.squeeze(1).to(self.device)
         embeddings = self.model.encode_image(image_input)
         return embeddings / embeddings.norm(dim=-1, keepdim=True)
 
@@ -30,3 +34,7 @@ class ClipEmbeddingEncoder(FeatureExtractor):
 
     def encode_3D(self, pc_tensor):
         raise NotImplementedError
+
+    def get_img_transform(self):
+        return self.preprocess
+    
