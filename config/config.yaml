@@ -1,11 +1,2 @@
 general:
   cache_dir: /mnt/pfs/users/yuanze/projects/LD-T3D/.cache # where you put the checkpoints
-
-uni3d:
-  # the full path is ${cache_dir}/${checkpoint_path}
-  checkpoint_path: Uni3D/model.pt
-  clip_path: Uni3D/open_clip_pytorch_model.bin
-
-openshape:
-  checkpoint_path: OpenShape_code/model.pt
-  clip_path: OpenShape_code/open_clip_pytorch_model.bin

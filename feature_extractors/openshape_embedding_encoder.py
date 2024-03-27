@@ -1,16 +1,19 @@
 """
 For source code, see https://github.com/Colin97/OpenShape_code
 """
+import os
 import open_clip
 import torch
 from PIL import Image
 import re
 from einops import rearrange
 from collections import OrderedDict
-import dgl.geometry
+from pointnet2_ops import pointnet2_utils
 import torch.nn as nn
 import torch.nn.functional as F
 import torch_redstone as rst
+from huggingface_hub import hf_hub_download
+
 import sys
 sys.path.append('')
 from feature_extractors import FeatureExtractor
@@ -24,7 +27,9 @@ def farthest_point_sample(xyz, npoint):
     Return:
         centroids: sampled pointcloud index, [B, npoint]
     """
-    return dgl.geometry.farthest_point_sampler(xyz, npoint)
+    # return dgl.geometry.farthest_point_sampler(xyz, npoint)
+    xyz = xyz.contiguous()
+    return pointnet2_utils.furthest_point_sample(xyz, npoint) 
 
 def index_points(points, idx):
     """
@@ -311,12 +316,22 @@ class OpenshapeEmbeddingEncoder(FeatureExtractor):
         model.load_state_dict(model_dict)
         return model
 
-    def __init__(self, **kwargs):
+    def __init__(self, cache_dir, **kwargs):
+        opens_path = os.path.join(cache_dir, "Openshape", "model.pt")
+        clip_path = os.path.join(cache_dir, "Openshape", "open_clip_pytorch_model.bin")
+
+        if not os.path.exists(opens_path):
+            hf_hub_download("OpenShape/openshape-pointbert-vitg14-rgb", "model.pt", cache_dir=cache_dir, 
+                            local_dir=cache_dir + os.sep + "Openshape")
+        if not os.path.exists(clip_path):
+            hf_hub_download("laion/CLIP-ViT-bigG-14-laion2B-39B-b160k", "open_clip_pytorch_model.bin", 
+                            cache_dir=cache_dir, local_dir=cache_dir + os.sep + "Openshape")
+
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.openshape_model = self.load_model(kwargs.get("checkpoint_path")).to(self.device)
+        self.openshape_model = self.load_model(opens_path).to(self.device)
         self.openshape_model.eval()
-        self.open_clip_model, _, self.preprocess = open_clip.create_model_and_transforms('ViT-bigG-14', pretrained='laion2b_s39b_b160k')
-        self.open_clip_model.cuda().eval()
+        self.open_clip_model, _, self.preprocess = open_clip.create_model_and_transforms('ViT-bigG-14', pretrained=clip_path)
+        self.open_clip_model.to(self.device).eval()
 
     @torch.no_grad()
     def encode_text(self, input_data):
@@ -325,8 +340,8 @@ class OpenshapeEmbeddingEncoder(FeatureExtractor):
         return text_embeddings / text_embeddings.norm(dim=-1, keepdim=True)
 
     @torch.no_grad()
-    def encode_image(self, image_path_list):
-        image = torch.cat([self.preprocess(Image.open(image_path).convert("RGB")).unsqueeze(0) for image_path in image_path_list]).cuda()
+    def encode_image(self, img_tensor_list):
+        image = img_tensor_list.cuda()
         image_features = self.open_clip_model.encode_image(image)
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
         return image_features.float()
@@ -341,3 +356,9 @@ class OpenshapeEmbeddingEncoder(FeatureExtractor):
         shape_feat = self.openshape_model(xyz, feat, device='cuda', quantization_size=0.02) 
         shape_feat = shape_feat / shape_feat.norm(dim=-1, keepdim=True)
         return shape_feat
+    
+    def get_img_transform(self):
+        def inner(img):
+            img = img.convert("RGB")
+            return self.preprocess(img)
+        return inner

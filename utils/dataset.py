@@ -36,7 +36,7 @@ def get_dataset(modality, id_list, cache_dir, angle=None, img_transform=None):
         assert dataset['source_id'] == id_list, "The dataset is not organized in the same order as the id_list"
         return dataset
     elif modality == "text": # return [caption]
-        data_files = {"captions": "Cap3D_automated_Objaverse_no3Dword.csv"}
+        data_files = {"captions": "misc/Cap3D_automated_Objaverse_no3Dword.csv"}
         dataset = load_dataset("tiange/Cap3D", data_files=data_files, names=["source_id", "caption"], header=None, split='captions', cache_dir=cache_dir)
         obj_list = dataset['caption']
         map = Map(dataset['source_id'], obj_list)
@@ -59,28 +59,32 @@ def get_rel_dataset(cache_dir):
     return dataset
 
 if __name__ == '__main__':
-    # from torch.utils.data import DataLoader
-    # import torch
+    from torch.utils.data import DataLoader
+    import torch
+    from torchvision import transforms
+    import os
+    # os.environ['HTTP_PROXY'] = 'http://192.168.48.17:18000'
+    # os.environ['HTTPS_PROXY'] = 'http://192.168.48.17:18000'
     
-    # federated_dataset = torch.load("data/federated_dataset.pt")
-    # source_id_list = set()
-    # for value in federated_dataset.values():
-    #     source_id_list.update(value)
-    # source_id_list = list(source_id_list)
-    # source_id_list.sort()
+    federated_dataset = torch.load("data/federated_dataset.pt")
+    source_id_list = set()
+    for value in federated_dataset.values():
+        source_id_list.update(value)
+    source_id_list = list(source_id_list)
+    source_id_list.sort()
 
     # # test 3D
     # ds = get_dataset("3D", source_id_list)
 
-    # # test image
-    # transform = transforms.Compose([
-    #     transforms.ToTensor()
-    # ])
-    # ds = get_dataset("image", source_id_list, "diag_below", img_transform=transform)
-    # dataloader = DataLoader(ds, batch_size=1)
+    # test image
+    transform = transforms.Compose([
+        transforms.ToTensor()
+    ])
+    ds = get_dataset("image", source_id_list, "./.cache", angle="diag_above", img_transform=transform)
+    ds[0]['image'].save("test.webp", "WEBP")
 
-    # # test text
-    # ds = get_dataset("text", source_id_list)
+    # test text
+    # ds = get_dataset("text", source_id_list, "./.cache")
 
     # print(source_id_list[0])
     # dataloader = DataLoader(ds, batch_size=1)
@@ -88,4 +92,4 @@ if __name__ == '__main__':
     #     print(batch) 
     #     break
 
-    get_rel_dataset()
+    # get_rel_dataset()

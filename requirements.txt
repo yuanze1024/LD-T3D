@@ -10,7 +10,6 @@ omegaconf
 torch_redstone 
 einops 
 tqdm 
-dgl
 transformers
 beir
 bitsandbytes
@@ -23,7 +22,7 @@ angle-emb
 safetensors
 ftfy 
 regex
-
+pillow
 contexttimer
 decord
 diffusers
@@ -49,3 +48,5 @@ wheel
 nltk
 pyyaml_env_tag
 colorlog
+gradio
+ipdb
