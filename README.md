@@ -225,7 +225,12 @@ All our experiments are conducted undeer the GPU A100. You can try our [online d
 ## Installation
 **[Note]**: The installation steps is not necessary to use our dataset, which you can easily use in [HF Dataset](https://huggingface.co/datasets/VAST-AI/LD-T3D). The docker image may be quite heavy because it involves all the requirements of retrieval methods mentioned in our benchmark. If you only want to try one of those methods, you can refer to their official code repo.
 ### All in One
-We provide an image built from scratch.
+We provide a built image [yuanze1024/LD-T3D](https://hub.docker.com/repository/docker/yuanze1024/ld-t3d/general).
+
+You can use it by:
+```
+docker pull yuanze1024/ld-t3d:v1
+```
 ### From Scratch
 If you fail to pull our image, you can build from the Dockerfile:
 ```shell
@@ -264,5 +269,5 @@ Note that we only support dual-stream architecture by now, which means the embed
 You can refer to encoders in `feature_extractors` and achieve your own method which inherits the base class `FeatureExtractor` in `feature_extractors/__init__.py`. BTW, if you want to use image modality, you also need to implement a `get_img_transform` function.
 ## Citation
 ~~~bib
-our arxiv
+not published yet
 ~~~
