@@ -48,5 +48,3 @@ wheel
 nltk
 pyyaml_env_tag
 colorlog
-gradio
-ipdb

@@ -55,7 +55,7 @@ def get_rel_dataset(cache_dir):
     ```
     """
     repo = "VAST-AI/LD-T3D"
-    dataset = load_dataset(repo, name="relations", split="full", cache_dir=cache_dir)
+    dataset = load_dataset(repo, split="full", cache_dir=cache_dir)
     return dataset
 
 if __name__ == '__main__':
